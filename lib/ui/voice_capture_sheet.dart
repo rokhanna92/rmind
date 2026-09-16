@@ -178,7 +178,10 @@ class _VoiceCaptureSheetState extends State<_VoiceCaptureSheet>
                     Text(
                       hasError
                           ? error
-                          : 'Listening · saves after 3 s of silence',
+                          // Deliberately no number. The pause length lives in
+                          // SpeechService and a figure quoted here would go
+                          // stale the moment it is tuned.
+                          : 'Listening · take your time, or tap Done',
                       textAlign: TextAlign.center,
                       style: hasError ? hint.copyWith(color: RM.alarm) : hint,
                     ),

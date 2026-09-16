@@ -9,10 +9,13 @@ import 'package:speech_to_text/speech_to_text.dart';
 /// owns that single recognizer and re-points the callbacks at whoever called
 /// [start] last, so the UI can come and go without re-initializing.
 class SpeechService {
-  /// Reminders are one or two sentences, so a long ceiling plus a short pause
-  /// means the session almost always ends because the user stopped talking.
-  static const Duration _listenFor = Duration(seconds: 30);
-  static const Duration _pauseFor = Duration(seconds: 3);
+  /// The session should end because the user finished, not because the app
+  /// got impatient. Three seconds of silence cut people off mid thought while
+  /// they worked out what they wanted to say, so the pause is long enough to
+  /// think in and the ceiling is generous enough to hold a rambling sentence.
+  /// Done on the sheet is always there for anyone who wants to stop sooner.
+  static const Duration _listenFor = Duration(seconds: 90);
+  static const Duration _pauseFor = Duration(seconds: 8);
   static const String _localeId = 'en_US';
 
   final SpeechToText _speech = SpeechToText();
