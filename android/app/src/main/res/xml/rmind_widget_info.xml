@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:initialLayout="@layout/rmind_widget"
+    android:previewLayout="@layout/rmind_widget"
+    android:updatePeriodMillis="0"/>
+<!-- updatePeriodMillis is 0 on purpose. The app pushes an update whenever the
+     data changes, and the running session clock is a Chronometer that ticks on
+     its own, so a polling interval would only wake the device to redraw
+     something that has not changed. The system will not poll faster than every
+     30 minutes anyway, which is too coarse to be worth the battery. -->

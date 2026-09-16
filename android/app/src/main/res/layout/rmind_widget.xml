@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Every colour here is a literal because Android XML cannot see lib/ui/design.dart.
+     The comment above each view names the RM token it mirrors, so a token change
+     has somewhere obvious to land. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rmind_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="16dp">
+
+    <!-- #FFB77A is RM.alarm, the one warm colour in the palette and reserved
+         for alarms. Shown only when the next reminder is an alarm. -->
+    <TextView
+        android:id="@+id/rmind_widget_alarm"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="ALARM"
+        android:textColor="#FFB77A"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.08"
+        android:layout_marginBottom="2dp"
+        android:visibility="gone"/>
+
+    <!-- The when line, the largest thing on the tile: the design's rule is that
+         users scan for when, not what. #E2E2EA is RM.ink. -->
+    <TextView
+        android:id="@+id/rmind_widget_when"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#E2E2EA"
+        android:textSize="26sp"
+        android:textStyle="bold"
+        android:maxLines="2"
+        android:ellipsize="end"/>
+
+    <!-- The task title, second read. #C4C6D3 is RM.inkMid. -->
+    <TextView
+        android:id="@+id/rmind_widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="#C4C6D3"
+        android:textSize="14sp"
+        android:maxLines="2"
+        android:ellipsize="end"/>
+
+    <!-- The running session line. #B9C3FF is RM.accentLight. The Chronometer
+         ticks by itself in the launcher, so a running clock costs the app
+         nothing. -->
+    <LinearLayout
+        android:id="@+id/rmind_widget_session"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/rmind_widget_session_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:textColor="#B9C3FF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+        <Chronometer
+            android:id="@+id/rmind_widget_session_clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#B9C3FF"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+
+    <!-- The empty state, shown instead of stale content. #8E90A0 is RM.inkSoft.
+         The text here is only what the launcher's picker preview and a widget
+         that has never been pushed to can show. Once the app pushes, its own
+         wording replaces it, so this stays the one and only copy of it. -->
+    <TextView
+        android:id="@+id/rmind_widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Nothing scheduled"
+        android:textColor="#8E90A0"
+        android:textSize="15sp"
+        android:maxLines="1"
+        android:ellipsize="end"/>
+</LinearLayout>

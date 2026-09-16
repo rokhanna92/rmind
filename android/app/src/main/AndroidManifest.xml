@@ -76,6 +76,21 @@
             </intent-filter>
         </receiver>
 
+        <!-- The home screen widget. Not exported: the only two senders are the
+             system app widget service, which is exempt, and this app's own
+             update broadcast, which is in-package. Nothing outside needs to
+             reach it. -->
+        <receiver
+            android:name=".RmindWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/rmind_widget_info"/>
+        </receiver>
+
         <!-- Hands the downloaded APK to the system installer. Since Android 7
              a raw file:// path is rejected, so the installer is given a
              content:// URI that grants it read access to just that one file. -->
