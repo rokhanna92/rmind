@@ -70,7 +70,12 @@ class WorkoutsPage extends StatelessWidget {
     required this.onEnd,
     required this.onTapSession,
     required this.onDeleteSession,
+    this.foodCard,
   });
+
+  /// Sits above the session content. Training and eating belong on one screen,
+  /// and the nav has no room for a fifth tab.
+  final Widget? foodCard;
 
   /// Newest first.
   final List<WorkoutSession> sessions;
@@ -90,7 +95,14 @@ class WorkoutsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final running = this.running;
-    if (sessions.isEmpty && running == null) return const _EmptyState();
+    if (sessions.isEmpty && running == null) {
+      final card = foodCard;
+      if (card == null) return const _EmptyState();
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 120),
+        children: [card, const SizedBox(height: 24), const _EmptyState()],
+      );
+    }
 
     // The live session has its own card, so it is dropped from the history
     // whether or not the caller also listed it. A stale one stays: the caller
@@ -102,6 +114,11 @@ class WorkoutsPage extends StatelessWidget {
     final week = _Week.of(sessions: sessions, running: running, now: now);
 
     final rows = <Widget>[];
+    final card = foodCard;
+    if (card != null) {
+      rows.add(const SizedBox(height: 10));
+      rows.add(card);
+    }
     if (running != null) {
       rows.add(const SizedBox(height: 10));
       rows.add(_RunningCard(session: running, now: now, onEnd: onEnd));

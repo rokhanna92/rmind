@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_services.dart';
+import 'data/food_repository.dart';
 import 'data/note_repository.dart';
 import 'data/task_repository.dart';
 import 'data/workout_repository.dart';
@@ -8,6 +9,7 @@ import 'services/api_key_store.dart';
 import 'services/backup_service.dart';
 import 'services/gemini_client.dart';
 import 'services/permissions_service.dart';
+import 'services/settings_store.dart';
 import 'services/reminder_scheduler.dart';
 import 'services/speech_service.dart';
 import 'services/widget_service.dart';
@@ -25,6 +27,9 @@ Future<void> main() async {
 
   final notes = NoteRepository();
   await notes.init();
+
+  final food = FoodRepository();
+  await food.init();
 
   final scheduler = ReminderScheduler();
   await scheduler.init();
@@ -60,6 +65,8 @@ Future<void> main() async {
         repository: repository,
         workouts: workouts,
         notes: notes,
+        food: food,
+        settings: SettingsStore(),
         scheduler: scheduler,
         speech: speech,
         permissions: PermissionsService(),

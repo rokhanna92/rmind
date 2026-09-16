@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../services/permissions_service.dart';
 import '../services/api_key_store.dart';
 import '../services/backup_service.dart';
+import '../services/settings_store.dart';
 import '../services/update_service.dart';
 import 'api_key_page.dart';
 import 'backup_page.dart';
+import 'protein_settings_sheet.dart';
 import 'design.dart';
 import 'update_sheet.dart';
 
@@ -22,6 +24,7 @@ class OnboardingPage extends StatefulWidget {
     this.apiKeys,
     this.updates,
     this.backups,
+    this.settings,
     this.onRestored,
   });
 
@@ -32,6 +35,7 @@ class OnboardingPage extends StatefulWidget {
   final ApiKeyStore? apiKeys;
   final UpdateService? updates;
   final BackupService? backups;
+  final SettingsStore? settings;
 
   /// Reloads the app after a restore has replaced what is in the database.
   final Future<void> Function()? onRestored;
@@ -43,12 +47,14 @@ class OnboardingPage extends StatefulWidget {
 class _OnboardingPageState extends State<OnboardingPage> {
   PermissionReport? _report;
   String? _version;
+  String? _proteinDetail;
 
   @override
   void initState() {
     super.initState();
     _refresh();
     _loadVersion();
+    _loadProtein();
   }
 
   Future<void> _loadVersion() async {
@@ -57,6 +63,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
     final label = await updates.currentVersionLabel();
     if (!mounted) return;
     setState(() => _version = label);
+  }
+
+  Future<void> _loadProtein() async {
+    final store = widget.settings;
+    if (store == null) return;
+    final shake = await store.shakeGrams();
+    final target = await store.dailyProteinTarget();
+    if (!mounted) return;
+    setState(() => _proteinDetail = 'Shake $shake g, target $target g a day.');
   }
 
   Future<void> _refresh() async {
@@ -173,7 +188,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 ),
                 if (widget.apiKeys != null ||
                     widget.updates != null ||
-                    widget.backups != null) ...[
+                    widget.backups != null ||
+                    widget.settings != null) ...[
                   const SizedBox(height: 28),
                   Text('App', style: RM.dayLabel),
                   const SizedBox(height: 12),
@@ -190,6 +206,19 @@ class _OnboardingPageState extends State<OnboardingPage> {
                           ),
                         );
                         if (mounted) setState(() {});
+                      },
+                    ),
+                  if (widget.settings != null)
+                    _AppRow(
+                      icon: Icons.local_drink,
+                      title: 'Protein',
+                      detail: _proteinDetail ?? 'Shake size and daily target.',
+                      onTap: () async {
+                        await showProteinSettings(
+                          context,
+                          store: widget.settings!,
+                        );
+                        await _loadProtein();
                       },
                     ),
                   if (widget.backups != null)

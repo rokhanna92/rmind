@@ -3,12 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app_services.dart';
+import '../models/food_entry.dart';
 import '../models/note.dart';
 import '../models/task.dart';
 import '../models/workout_session.dart';
 import '../services/gemini_client.dart';
 import '../services/update_service.dart';
 import 'design.dart';
+import 'food_card.dart';
+import 'food_editor_sheet.dart';
+import 'food_page.dart';
 import 'format.dart';
 import 'api_key_page.dart';
 import 'insights_page.dart';
@@ -32,6 +36,9 @@ class _HomePageState extends State<HomePage> {
   List<Task> _tasks = const [];
   List<WorkoutSession> _sessions = const [];
   List<Note> _notes = const [];
+  int _proteinToday = 0;
+  int _shakeGrams = FoodEntry.defaultShakeGrams;
+  int _proteinTarget = FoodEntry.defaultDailyTarget;
   WorkoutSession? _running;
   bool _loading = true;
   bool _showDone = false;
@@ -57,12 +64,19 @@ class _HomePageState extends State<HomePage> {
     final sessions = await _s.workouts.all();
     final running = await _s.workouts.running();
     final notes = await _s.notes.all();
+    final today = DateTime.now();
+    final proteinToday = await _s.food.proteinOn(today);
+    final shakeGrams = await _s.settings.shakeGrams();
+    final proteinTarget = await _s.settings.dailyProteinTarget();
     if (!mounted) return;
     setState(() {
       _tasks = tasks;
       _sessions = sessions;
       _running = running;
       _notes = notes;
+      _proteinToday = proteinToday;
+      _shakeGrams = shakeGrams;
+      _proteinTarget = proteinTarget;
       _loading = false;
     });
     await _pushWidget();
@@ -257,7 +271,47 @@ class _HomePageState extends State<HomePage> {
         await _endSessionByVoice();
       case NoteIntent(:final text):
         await _saveNote(text);
+      case FoodIntent():
+        await _logFood(intent);
     }
+  }
+
+  /// The parse only reports what was said. A shake with no stated number is
+  /// filled in from the user's own configured size by the editor, so the app
+  /// never guesses at the one figure it actually knows.
+  Future<void> _logFood(FoodIntent parsed) async {
+    final entry = await showFoodEditor(
+      context,
+      parsed: parsed,
+      shakeGrams: _shakeGrams,
+      day: DateTime.now(),
+    );
+    if (entry == null || !mounted) return;
+    await _s.food.add(entry);
+    await _load();
+  }
+
+  /// One tap for the thing eaten most often. Their own number, so it is not
+  /// marked as an estimate.
+  Future<void> _addShake() async {
+    await _s.food.add(
+      FoodEntry(
+        description: 'Protein shake',
+        proteinGrams: _shakeGrams,
+        eatenAt: DateTime.now(),
+        estimated: false,
+      ),
+    );
+    await _load();
+  }
+
+  Future<void> _openFoodDiary() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _FoodDiaryHost(services: _s),
+      ),
+    );
+    if (mounted) await _load();
   }
 
   Future<void> _saveNote(String text) async {
@@ -478,6 +532,13 @@ class _HomePageState extends State<HomePage> {
               );
       case 1:
         return WorkoutsPage(
+          foodCard: FoodCard(
+            todayGrams: _proteinToday,
+            target: _proteinTarget,
+            shakeGrams: _shakeGrams,
+            onAddShake: _addShake,
+            onOpen: _openFoodDiary,
+          ),
           sessions: _sessions,
           running: _running,
           now: now,
@@ -533,6 +594,7 @@ class _HomePageState extends State<HomePage> {
                       apiKeys: _s.apiKeys,
                       updates: UpdateService(),
                       backups: _s.backups,
+                      settings: _s.settings,
                       // A restore replaces the database under the app, so the
                       // whole screen reloads and every reminder is rescheduled
                       // from the rows that now exist.
@@ -1201,6 +1263,114 @@ class _Banner extends StatelessWidget {
           Expanded(child: Text(text, style: RM.body)),
         ],
       ),
+    );
+  }
+}
+
+/// Hosts [FoodPage], which is stateless: the day being viewed and the entries
+/// for it live here so the page can stay a pure rendering of what it is given.
+class _FoodDiaryHost extends StatefulWidget {
+  const _FoodDiaryHost({required this.services});
+
+  final AppServices services;
+
+  @override
+  State<_FoodDiaryHost> createState() => _FoodDiaryHostState();
+}
+
+class _FoodDiaryHostState extends State<_FoodDiaryHost> {
+  late DateTime _day;
+  List<FoodEntry> _entries = const [];
+  int _grams = 0;
+  int _shakeGrams = FoodEntry.defaultShakeGrams;
+  int _target = FoodEntry.defaultDailyTarget;
+
+  AppServices get _s => widget.services;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _day = DateTime(now.year, now.month, now.day);
+    _load();
+  }
+
+  Future<void> _load() async {
+    final entries = await _s.food.forDay(_day);
+    final grams = await _s.food.proteinOn(_day);
+    final shake = await _s.settings.shakeGrams();
+    final target = await _s.settings.dailyProteinTarget();
+    if (!mounted) return;
+    setState(() {
+      _entries = entries;
+      _grams = grams;
+      _shakeGrams = shake;
+      _target = target;
+    });
+  }
+
+  Future<void> _addShake() async {
+    // Logged at the shown day, not always now, so a day opened yesterday does
+    // not quietly record the shake against today.
+    final now = DateTime.now();
+    final sameDay = DateTime(now.year, now.month, now.day) == _day;
+    await _s.food.add(
+      FoodEntry(
+        description: 'Protein shake',
+        proteinGrams: _shakeGrams,
+        eatenAt: sameDay ? now : DateTime(_day.year, _day.month, _day.day, 12),
+        estimated: false,
+      ),
+    );
+    await _load();
+  }
+
+  Future<void> _edit(FoodEntry entry) async {
+    final updated = await showFoodEditor(
+      context,
+      existing: entry,
+      shakeGrams: _shakeGrams,
+      day: _day,
+    );
+    if (updated == null || !mounted) return;
+    await _s.food.update(updated);
+    await _load();
+  }
+
+  Future<void> _delete(FoodEntry entry) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await _s.food.delete(entry.id!);
+    await _load();
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Deleted "${entry.description}"'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () async {
+            await _s.food.add(entry.copyWith(id: null));
+            await _load();
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FoodPage(
+      entries: _entries,
+      day: _day,
+      todayGrams: _grams,
+      target: _target,
+      shakeGrams: _shakeGrams,
+      onAddShake: _addShake,
+      onEdit: _edit,
+      onDelete: _delete,
+      onChangeDay: (day) {
+        setState(() => _day = DateTime(day.year, day.month, day.day));
+        _load();
+      },
     );
   }
 }

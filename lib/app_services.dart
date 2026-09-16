@@ -1,3 +1,4 @@
+import 'data/food_repository.dart';
 import 'data/note_repository.dart';
 import 'data/task_repository.dart';
 import 'data/workout_repository.dart';
@@ -5,6 +6,7 @@ import 'services/api_key_store.dart';
 import 'services/backup_service.dart';
 import 'services/gemini_client.dart';
 import 'services/permissions_service.dart';
+import 'services/settings_store.dart';
 import 'services/reminder_scheduler.dart';
 import 'services/speech_service.dart';
 import 'services/widget_service.dart';
@@ -19,6 +21,8 @@ class AppServices {
     required this.repository,
     required this.workouts,
     required this.notes,
+    required this.food,
+    required this.settings,
     required this.scheduler,
     required this.speech,
     required this.permissions,
@@ -32,6 +36,8 @@ class AppServices {
   final TaskRepository repository;
   final WorkoutRepository workouts;
   final NoteRepository notes;
+  final FoodRepository food;
+  final SettingsStore settings;
   final ReminderScheduler scheduler;
   final SpeechService speech;
   final PermissionsService permissions;
