@@ -906,18 +906,12 @@ class _BottomNav extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: RM.accent,
-                    // The ring separates the mic from the bar behind it, so it
-                    // reads as sitting on top rather than punched into it.
+                    // The ring alone separates the mic from the bar behind it.
+                    // There was a blue glow here too, which read as smudged
+                    // rather than raised against a near black background.
                     border: Border.all(color: RM.bg, width: 4),
-                    boxShadow: [
-                      BoxShadow(
-                        color: RM.accent.withValues(alpha: 0.35),
-                        blurRadius: 20,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
                   ),
-                  child: const Icon(Icons.mic, size: 28, color: Colors.white),
+                  child: const Icon(Icons.mic, size: 24, color: Colors.white),
                 ),
               ),
             ),
