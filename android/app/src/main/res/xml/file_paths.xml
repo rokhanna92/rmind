@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Only the downloaded update is ever shared, and only with the system
+         installer. Scoped to the app's own cache directory so nothing else the
+         app stores can be reached through this provider. -->
+    <cache-path name="updates" path="updates/" />
+</paths>
