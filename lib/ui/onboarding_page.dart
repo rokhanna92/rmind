@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../services/permissions_service.dart';
 import '../services/api_key_store.dart';
+import '../services/backup_service.dart';
 import '../services/update_service.dart';
 import 'api_key_page.dart';
+import 'backup_page.dart';
 import 'design.dart';
 import 'update_sheet.dart';
 
@@ -19,6 +21,8 @@ class OnboardingPage extends StatefulWidget {
     required this.permissions,
     this.apiKeys,
     this.updates,
+    this.backups,
+    this.onRestored,
   });
 
   final PermissionsService permissions;
@@ -27,6 +31,10 @@ class OnboardingPage extends StatefulWidget {
   /// nothing but permissions until the app is usable at all.
   final ApiKeyStore? apiKeys;
   final UpdateService? updates;
+  final BackupService? backups;
+
+  /// Reloads the app after a restore has replaced what is in the database.
+  final Future<void> Function()? onRestored;
 
   @override
   State<OnboardingPage> createState() => _OnboardingPageState();
@@ -163,7 +171,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     ),
                   ),
                 ),
-                if (widget.apiKeys != null || widget.updates != null) ...[
+                if (widget.apiKeys != null ||
+                    widget.updates != null ||
+                    widget.backups != null) ...[
                   const SizedBox(height: 28),
                   Text('App', style: RM.dayLabel),
                   const SizedBox(height: 12),
@@ -181,6 +191,20 @@ class _OnboardingPageState extends State<OnboardingPage> {
                         );
                         if (mounted) setState(() {});
                       },
+                    ),
+                  if (widget.backups != null)
+                    _AppRow(
+                      icon: Icons.save_alt,
+                      title: 'Backup',
+                      detail: 'Save everything to a file, or restore it.',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => BackupPage(
+                            service: widget.backups!,
+                            onRestored: widget.onRestored ?? () async {},
+                          ),
+                        ),
+                      ),
                     ),
                   if (widget.updates != null)
                     _AppRow(

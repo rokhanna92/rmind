@@ -5,10 +5,12 @@ import 'data/note_repository.dart';
 import 'data/task_repository.dart';
 import 'data/workout_repository.dart';
 import 'services/api_key_store.dart';
+import 'services/backup_service.dart';
 import 'services/gemini_client.dart';
 import 'services/permissions_service.dart';
 import 'services/reminder_scheduler.dart';
 import 'services/speech_service.dart';
+import 'services/widget_service.dart';
 import 'ui/design.dart';
 import 'ui/home_page.dart';
 
@@ -64,6 +66,12 @@ Future<void> main() async {
         gemini: gemini,
         geminiError: geminiError,
         apiKeys: apiKeys,
+        backups: BackupService(
+          tasks: repository,
+          workouts: workouts,
+          notes: notes,
+        ),
+        widget: WidgetService(),
       ),
     ),
   );

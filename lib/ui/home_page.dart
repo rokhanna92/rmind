@@ -65,7 +65,25 @@ class _HomePageState extends State<HomePage> {
       _notes = notes;
       _loading = false;
     });
+    await _pushWidget();
     await _offerToCloseStaleSession();
+  }
+
+  /// Refreshes the home screen widget from whatever is on screen now.
+  ///
+  /// Driven from _load rather than from each mutation, so there is one place
+  /// that decides what the widget shows and no path that changes data without
+  /// telling it. Failures are swallowed inside WidgetService: a missing widget
+  /// must never take the app down.
+  Future<void> _pushWidget() async {
+    final now = DateTime.now();
+    final upcoming = _tasks.where((t) => t.isPending(now)).toList()
+      ..sort((a, b) => a.nextDueAt(now).compareTo(b.nextDueAt(now)));
+    await _s.widget.push(
+      nextTask: upcoming.isEmpty ? null : upcoming.first,
+      runningSession: _running,
+      now: now,
+    );
   }
 
   /// A session still open from yesterday means the user left the gym without
@@ -514,6 +532,16 @@ class _HomePageState extends State<HomePage> {
                       permissions: _s.permissions,
                       apiKeys: _s.apiKeys,
                       updates: UpdateService(),
+                      backups: _s.backups,
+                      // A restore replaces the database under the app, so the
+                      // whole screen reloads and every reminder is rescheduled
+                      // from the rows that now exist.
+                      onRestored: () async {
+                        await _s.scheduler.resync(
+                          await _s.repository.pendingReminders(DateTime.now()),
+                        );
+                        await _load();
+                      },
                     ),
                   ),
                 );

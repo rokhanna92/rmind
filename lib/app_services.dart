@@ -2,10 +2,12 @@ import 'data/note_repository.dart';
 import 'data/task_repository.dart';
 import 'data/workout_repository.dart';
 import 'services/api_key_store.dart';
+import 'services/backup_service.dart';
 import 'services/gemini_client.dart';
 import 'services/permissions_service.dart';
 import 'services/reminder_scheduler.dart';
 import 'services/speech_service.dart';
+import 'services/widget_service.dart';
 
 /// The app's long lived collaborators, built once at startup and handed down
 /// the widget tree.
@@ -22,6 +24,8 @@ class AppServices {
     required this.permissions,
     required this.gemini,
     required this.apiKeys,
+    required this.backups,
+    required this.widget,
     this.geminiError,
   });
 
@@ -34,6 +38,12 @@ class AppServices {
 
   /// Where the Gemini key is kept, so the settings screen can change it.
   final ApiKeyStore apiKeys;
+
+  /// Export and restore, the only defence against losing the phone.
+  final BackupService backups;
+
+  /// Feeds the home screen widget. Every call is safe to fail.
+  final WidgetService widget;
 
   /// Null when there is no API key. The app still runs in that state so tasks
   /// can be added by hand, which is why this is nullable rather than a hard
