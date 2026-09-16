@@ -34,6 +34,16 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  speech_to_text: ^7.5.0
+  flutter_local_notifications: ^22.3.1
+  timezone: ^0.11.1
+  flutter_timezone: ^5.1.0
+  sqflite: ^2.4.4
+  path: ^1.9.1
+  http: ^1.6.0
+  flutter_secure_storage: ^11.2.0
+  package_info_plus: ^10.2.1
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:
@@ -45,6 +55,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.4.3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -56,6 +67,13 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Manrope carries the whole visual identity. Bundled as a variable font
+  # rather than fetched at runtime, because this app has to work offline.
+  fonts:
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:
