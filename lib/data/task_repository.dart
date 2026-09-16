@@ -20,7 +20,7 @@ class TaskRepository {
 
   static const String _table = 'tasks';
   static const String _fileName = 'rmind.db';
-  static const int _version = 1;
+  static const int _version = 2;
 
   late final DatabaseFactory? _factory;
   late final String? _path;
@@ -84,6 +84,7 @@ CREATE TABLE $_table (
   reminder_minutes_before INTEGER NOT NULL,
   use_alarm INTEGER NOT NULL,
   is_done INTEGER NOT NULL,
+  recurrence TEXT NOT NULL DEFAULT 'none',
   created_at INTEGER NOT NULL
 )''');
 
@@ -91,8 +92,32 @@ CREATE TABLE $_table (
     await db.execute('CREATE INDEX idx_${_table}_due_at ON $_table (due_at)');
   }
 
-  /// No-op at version 1. Migrations get an obvious home here.
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {}
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _addRecurrenceColumn(db);
+    }
+  }
+
+  /// Adds the v2 recurrence column to a v1 table.
+  ///
+  /// The column list is checked first because SQLite has no ADD COLUMN IF NOT
+  /// EXISTS and a duplicate column is a hard error. That matters more here than
+  /// anywhere else in the app: sqflite runs the upgrade inside a transaction and
+  /// leaves the version untouched when it throws, so a migration that fails once
+  /// fails on every launch and the user is left with an app that cannot open its
+  /// own database.
+  ///
+  /// The default is written into the column rather than backfilled, so existing
+  /// rows read as [Recurrence.none] without a second statement touching them.
+  Future<void> _addRecurrenceColumn(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info($_table)');
+    final exists = columns.any((column) => column['name'] == 'recurrence');
+    if (exists) return;
+
+    await db.execute(
+      "ALTER TABLE $_table ADD COLUMN recurrence TEXT NOT NULL DEFAULT 'none'",
+    );
+  }
 
   /// Returns a copy carrying the row id, which is also the notification id.
   Future<Task> add(Task task) async {
@@ -147,11 +172,16 @@ CREATE TABLE $_table (
   ///
   /// The lead time is per task, so the cutoff is computed in SQL and the
   /// database does the filtering instead of loading every row into Dart.
+  ///
+  /// A repeating task is always pending, even once its first fire has gone, and
+  /// this mirrors [Task.isPending] rather than inventing a second rule. A row
+  /// dropped here is a reminder the OS never hears about.
   Future<List<Task>> pendingReminders(DateTime now) async {
     final rows = await _open.query(
       _table,
-      where: 'is_done = 0 AND (due_at - reminder_minutes_before * 60000) > ?',
-      whereArgs: [now.millisecondsSinceEpoch],
+      where: 'is_done = 0 AND (recurrence != ? '
+          'OR (due_at - reminder_minutes_before * 60000) > ?)',
+      whereArgs: [Recurrence.none.name, now.millisecondsSinceEpoch],
       orderBy: 'due_at ASC',
     );
     return rows.map(Task.fromMap).toList();

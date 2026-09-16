@@ -70,9 +70,13 @@ class ReminderScheduler {
   /// Hands [task] to the OS, keyed by its id so [cancel] can revoke exactly
   /// this reminder.
   ///
-  /// Returns quietly for tasks that are done or whose reminder time has
+  /// Returns quietly for tasks that are done or whose one off reminder time has
   /// passed. Those are normal states during a [resync], not errors, and the
   /// plugin itself throws on a date in the past.
+  ///
+  /// A repeating task is never skipped for being late. The OS fires it on the
+  /// next matching component, so a weekly task first set months ago is still a
+  /// live reminder and is handed over unchanged.
   Future<void> schedule(Task task) async {
     final int? id = task.id;
     if (id == null) {
@@ -82,8 +86,16 @@ class ReminderScheduler {
       return;
     }
 
+    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
     final tz.TZDateTime fireAt = tz.TZDateTime.from(task.remindAt, tz.local);
-    if (!fireAt.isAfter(tz.TZDateTime.now(tz.local))) {
+
+    // Only a one off can be too late to hand over. A repeating task keeps its
+    // original first fire even once that is months behind: the plugin derives
+    // the real next occurrence from the time of day plus the weekday or day of
+    // month of the date it is given, and rolling the date forward here would
+    // change that day of month for a task set on the 31st, which calendar
+    // arithmetic normalises into the following month.
+    if (!task.recurrence.repeats && !fireAt.isAfter(now)) {
       return;
     }
 
@@ -96,7 +108,21 @@ class ReminderScheduler {
       androidScheduleMode: task.useAlarm
           ? AndroidScheduleMode.alarmClock
           : AndroidScheduleMode.exactAllowWhileIdle,
+      matchDateTimeComponents: _repeatComponents(task.recurrence),
     );
+  }
+
+  /// What the OS should match on when it repeats a reminder.
+  ///
+  /// Null is not an oversight, it is the one off case the plugin documents: no
+  /// components to match means the notification fires once and is forgotten.
+  static DateTimeComponents? _repeatComponents(Recurrence recurrence) {
+    return switch (recurrence) {
+      Recurrence.none => null,
+      Recurrence.daily => DateTimeComponents.time,
+      Recurrence.weekly => DateTimeComponents.dayOfWeekAndTime,
+      Recurrence.monthly => DateTimeComponents.dayOfMonthAndTime,
+    };
   }
 
   /// Revokes the reminder for [taskId], whether it is pending or already on

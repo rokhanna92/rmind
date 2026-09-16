@@ -49,6 +49,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
   late DateTime _dueAt;
   late int _lead;
   late bool _useAlarm;
+  late Recurrence _recurrence;
 
   bool get _isConfirming => widget.parsed != null;
 
@@ -68,6 +69,8 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
         parsed?.reminderMinutesBefore ??
         Task.defaultReminderMinutes;
     _useAlarm = existing?.useAlarm ?? parsed?.useAlarm ?? false;
+    _recurrence =
+        existing?.recurrence ?? parsed?.recurrence ?? Recurrence.none;
 
     _hasTitle = _title.text.trim().isNotEmpty;
     // Only rebuilds when the title crosses between empty and non empty, rather
@@ -133,16 +136,21 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
     });
   }
 
-  void _save() {
+  /// The task the sheet currently describes.
+  ///
+  /// Shared by the Save button and the countdown so the two can never disagree
+  /// about when this next fires: the countdown asks the model for
+  /// [Task.nextDueAt] rather than re-deriving the repeat rule in the UI.
+  Task _draft() {
     final title = _title.text.trim();
-    if (title.isEmpty) return;
     final existing = widget.existing;
-    final task = existing == null
+    return existing == null
         ? Task(
             title: title,
             dueAt: _dueAt,
             reminderMinutesBefore: _lead,
             useAlarm: _useAlarm,
+            recurrence: _recurrence,
             createdAt: DateTime.now(),
           )
         : existing.copyWith(
@@ -150,16 +158,27 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
             dueAt: _dueAt,
             reminderMinutesBefore: _lead,
             useAlarm: _useAlarm,
+            recurrence: _recurrence,
           );
-    Navigator.of(context).pop(task);
+  }
+
+  void _save() {
+    if (_title.text.trim().isEmpty) return;
+    Navigator.of(context).pop(_draft());
   }
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    final remindAt = _dueAt.subtract(Duration(minutes: _lead));
-    final remindInPast = remindAt.isBefore(now);
-    final duePast = _dueAt.isBefore(now);
+    // A repeating task's first date is allowed to be behind us, so the header
+    // counts down to the occurrence that will actually happen. For a one off
+    // this is just _dueAt.
+    final nextDue = _draft().nextDueAt(now);
+    final remindAt = nextDue.subtract(Duration(minutes: _lead));
+    // Only a one off can be too late to save. A weekly reminder first set last
+    // month still fires next week, which is exactly what the user wants.
+    final remindInPast = !_recurrence.repeats && remindAt.isBefore(now);
+    final duePast = nextDue.isBefore(now);
     // A button that looks live but does nothing when tapped reads as a broken
     // app, so an empty title disables it visibly rather than silently.
     final canSave = !remindInPast && _hasTitle;
@@ -199,7 +218,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                   style: RM.label.copyWith(fontSize: 13),
                 ),
                 Text(
-                  duePast ? 'in the past' : _countdown(_dueAt.difference(now)),
+                  duePast ? 'in the past' : _countdown(nextDue.difference(now)),
                   style: RM.chip.copyWith(
                     color: duePast ? RM.alarm : RM.accentLight,
                   ),
@@ -279,10 +298,29 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                   runSpacing: 8,
                   children: [
                     for (final m in _choices)
-                      _LeadChip(
+                      _ChoiceChip(
                         label: _leadLabel(m),
                         selected: _lead == m,
                         onTap: () => setState(() => _lead = m),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 10,
+              children: [
+                Text('Repeats', style: RM.chip.copyWith(color: RM.inkSoft)),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final r in Recurrence.values)
+                      _ChoiceChip(
+                        label: r.label,
+                        selected: _recurrence == r,
+                        onTap: () => setState(() => _recurrence = r),
                       ),
                   ],
                 ),
@@ -414,8 +452,10 @@ class _PickerCard extends StatelessWidget {
   }
 }
 
-class _LeadChip extends StatelessWidget {
-  const _LeadChip({
+/// The pill used by both chip rows, so the lead times and the repeat options
+/// cannot drift apart visually.
+class _ChoiceChip extends StatelessWidget {
+  const _ChoiceChip({
     required this.label,
     required this.selected,
     required this.onTap,

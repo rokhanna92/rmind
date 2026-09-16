@@ -17,6 +17,7 @@ class ParsedTask {
     required this.reminderMinutesBefore,
     required this.useAlarm,
     required this.needsClarification,
+    this.recurrence = Recurrence.none,
   });
 
   final String title;
@@ -30,11 +31,17 @@ class ParsedTask {
   /// True when the time was guessed rather than heard, so the UI should ask.
   final bool needsClarification;
 
+  /// How often the user asked for this to come back. Defaults to
+  /// [Recurrence.none] because that is the answer whenever nothing said
+  /// otherwise, including every path that never asked the model about it.
+  final Recurrence recurrence;
+
   @override
   String toString() =>
       'ParsedTask(title: $title, dueAt: $dueAt, '
       'reminder: ${reminderMinutesBefore}m, alarm: $useAlarm, '
-      'needsClarification: $needsClarification)';
+      'needsClarification: $needsClarification, '
+      'recurrence: ${recurrence.name})';
 }
 
 /// What one spoken sentence turned out to mean.
@@ -196,6 +203,10 @@ class GeminiClient {
       'reminderMinutesBefore': {'type': 'INTEGER'},
       'useAlarm': {'type': 'BOOLEAN'},
       'needsClarification': {'type': 'BOOLEAN'},
+      'recurrence': {
+        'type': 'STRING',
+        'enum': ['none', 'daily', 'weekly', 'monthly'],
+      },
       'workoutType': {'type': 'STRING'},
       'noteText': {'type': 'STRING'},
     },
@@ -207,6 +218,7 @@ class GeminiClient {
       'reminderMinutesBefore',
       'useAlarm',
       'needsClarification',
+      'recurrence',
     ],
   };
 
@@ -497,10 +509,29 @@ class GeminiClient {
     var dueAt = parsed;
     var needsClarification = fields['needsClarification'] == true;
 
+    // Read leniently rather than required: only the intent schema carries this
+    // field, so extract's answers simply have nothing here and land on none,
+    // and an enum value this app has not heard of degrades the same way.
+    final rawRecurrence = fields['recurrence'];
+    final recurrence = Recurrence.fromName(
+      rawRecurrence is String ? rawRecurrence.trim() : null,
+    );
+
     // The prompt forbids past times, but the model still slips occasionally.
     // Silently accepting one would schedule a notification that never fires.
     if (!dueAt.isAfter(now)) {
-      dueAt = _rollForward(dueAt, now);
+      // A repeating task has to keep its weekday or day of month: moving "every
+      // Monday" to tomorrow would hand the OS a Saturday to repeat on forever.
+      // Stepping is asked of the model rather than redone here so the two can
+      // never disagree about what "every week" means.
+      dueAt = recurrence.repeats
+          ? Task(
+              title: title,
+              dueAt: dueAt,
+              recurrence: recurrence,
+              createdAt: now,
+            ).nextDueAt(now)
+          : _rollForward(dueAt, now);
       needsClarification = true;
     }
 
@@ -510,6 +541,7 @@ class GeminiClient {
       reminderMinutesBefore: _minutes(fields['reminderMinutesBefore']),
       useAlarm: fields['useAlarm'] == true,
       needsClarification: needsClarification,
+      recurrence: recurrence,
     );
   }
 
@@ -665,7 +697,9 @@ Leave it empty when they did not say what they are training.
 The reminder fields below are read only when intent is "reminder". For the note
 and workout intents they are ignored, so fill them with any valid values.
 
-$_reminderRules''';
+$_reminderRules
+
+$_recurrenceRules''';
   }
 
   String _anchor(DateTime now) {
@@ -696,4 +730,26 @@ Map vague parts of the day to exactly these times, with no exceptions:
 So "Friday evening" is Friday at 18:00, never 09:00.
 
 If no time can be inferred at all, use 09:00 and set needsClarification true.''';
+
+  /// Only the intent schema has a recurrence field, so these rules ride with
+  /// the router prompt and never reach [extract], whose answer would otherwise
+  /// describe a field it is not allowed to return.
+  static const String _recurrenceRules = '''
+recurrence: how often the reminder comes back. Answer with exactly one of
+"none", "daily", "weekly" or "monthly".
+- "daily" for "every day", "each morning", "every night", "daily".
+- "weekly" for "every Monday", "every Friday", "weekly", "every week".
+- "monthly" for "every month", "monthly", "on the first", "on the 15th of every
+  month".
+- "none" for everything else, including a one off date such as "on Friday" or
+  "tomorrow at nine".
+
+When the sentence does not clearly ask for a repeat, answer "none". Only repeat
+when the user actually said so. A surprise repeating alarm going off every
+morning is far more annoying than a reminder that did not repeat, so bias
+towards "none" every single time you are unsure.
+
+date and time still describe the FIRST occurrence, even when recurrence is not
+"none". "Remind me every Monday at 9" is the next Monday at 09:00 with
+recurrence "weekly".''';
 }

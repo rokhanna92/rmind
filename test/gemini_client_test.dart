@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:rmind/models/task.dart';
 import 'package:rmind/models/workout_session.dart';
 import 'package:rmind/services/gemini_client.dart';
 
@@ -792,4 +793,190 @@ void main() {
     });
   });
 
+  group('recurrence', () {
+    /// Answers [recurrence] alongside a plain future reminder.
+    GeminiClient clientAnswering(Object? recurrence) {
+      return GeminiClient(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          return modelReply({
+            'intent': 'reminder',
+            'title': 'Standup',
+            'date': '2026-09-21',
+            'time': '09:00',
+            'reminderMinutesBefore': 10,
+            'useAlarm': false,
+            'needsClarification': false,
+            'recurrence': ?recurrence,
+          });
+        }),
+      );
+    }
+
+    for (final (phrase, answer, expected) in [
+      ('remind me to stretch every day at nine', 'daily', Recurrence.daily),
+      ('standup every Monday at nine', 'weekly', Recurrence.weekly),
+      ('pay the rent on the first of every month', 'monthly',
+          Recurrence.monthly),
+      ('call the dentist on Monday at nine', 'none', Recurrence.none),
+    ]) {
+      test('reads "$answer" from "$phrase"', () async {
+        final result = await clientAnswering(answer).interpret(
+          phrase,
+          now: DateTime(2026, 9, 16, 10, 30),
+        );
+
+        expect((result as ReminderIntent).task.recurrence, expected);
+      });
+    }
+
+    test('falls back to none for a value outside the enum', () async {
+      final result = await clientAnswering('fortnightly').interpret(
+        'remind me every other Monday',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      // A surprise repeating alarm costs the user far more than a missed
+      // repeat, so anything unrecognised has to land on none.
+      expect((result as ReminderIntent).task.recurrence, Recurrence.none);
+    });
+
+    test('falls back to none when the field is missing entirely', () async {
+      final result = await clientAnswering(null).interpret(
+        'call the dentist on Monday',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      expect((result as ReminderIntent).task.recurrence, Recurrence.none);
+    });
+
+    test('falls back to none when the field is not a string', () async {
+      final result = await clientAnswering(7).interpret(
+        'call the dentist on Monday',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      expect((result as ReminderIntent).task.recurrence, Recurrence.none);
+    });
+
+    test('constrains recurrence to the four values in the schema', () async {
+      late http.Request seen;
+      final client = GeminiClient(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          seen = request;
+          return modelReply({
+            'intent': 'reminder',
+            'title': 'Standup',
+            'date': '2026-09-21',
+            'time': '09:00',
+            'reminderMinutesBefore': 10,
+            'useAlarm': false,
+            'needsClarification': false,
+            'recurrence': 'weekly',
+          });
+        }),
+      );
+
+      await client.interpret(
+        'standup every Monday at nine',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      final config = requestBody(seen)['generationConfig'] as Map;
+      final schema = config['responseSchema'] as Map;
+      final properties = schema['properties'] as Map;
+      final recurrence = properties['recurrence'] as Map;
+
+      expect(recurrence['type'], 'STRING');
+      expect(recurrence['enum'], ['none', 'daily', 'weekly', 'monthly']);
+      expect(schema['required'], contains('recurrence'));
+
+      final prompt = systemPromptOf(seen);
+      expect(prompt, contains('every Monday'));
+      expect(prompt, contains('bias\ntowards "none"'));
+    });
+
+    test('extract reports none and never asks for the field', () async {
+      late http.Request seen;
+      final client = GeminiClient(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          seen = request;
+          return modelReply({
+            'title': 'Standup',
+            'date': '2026-09-21',
+            'time': '09:00',
+            'reminderMinutesBefore': 10,
+            'useAlarm': false,
+            'needsClarification': false,
+          });
+        }),
+      );
+
+      final result = await client.extract(
+        'standup every Monday at nine',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      expect(result.recurrence, Recurrence.none);
+
+      final config = requestBody(seen)['generationConfig'] as Map;
+      final schema = config['responseSchema'] as Map;
+      expect((schema['properties'] as Map).containsKey('recurrence'), isFalse);
+    });
+
+    /// Answers a first occurrence that has already been and gone.
+    GeminiClient clientAnsweringPast(String date, String recurrence) {
+      return GeminiClient(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          return modelReply({
+            'intent': 'reminder',
+            'title': 'Standup',
+            'date': date,
+            'time': '09:00',
+            'reminderMinutesBefore': 10,
+            'useAlarm': false,
+            'needsClarification': false,
+            'recurrence': recurrence,
+          });
+        }),
+      );
+    }
+
+    test('rolling a past weekly first date forward keeps the weekday', () async {
+      // 2026-09-14 is a Monday, 2026-09-16 a Wednesday. Rolling by a day would
+      // turn "every Monday" into a reminder that repeats on Thursdays.
+      final result = await clientAnsweringPast('2026-09-14', 'weekly').interpret(
+        'standup every Monday at nine',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      final task = (result as ReminderIntent).task;
+      expect(task.dueAt, DateTime(2026, 9, 21, 9));
+      expect(task.dueAt.weekday, DateTime.monday);
+      expect(task.needsClarification, isTrue);
+    });
+
+    test('rolling a past monthly first date forward keeps the day', () async {
+      final result = await clientAnsweringPast('2026-08-15', 'monthly')
+          .interpret(
+        'pay the rent on the 15th of every month',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      final task = (result as ReminderIntent).task;
+      expect(task.dueAt, DateTime(2026, 10, 15, 9));
+    });
+
+    test('a past one off still rolls to the next day at the same time', () async {
+      final result = await clientAnsweringPast('2026-09-14', 'none').interpret(
+        'call the dentist at nine',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      expect((result as ReminderIntent).task.dueAt, DateTime(2026, 9, 17, 9));
+    });
+  });
 }
