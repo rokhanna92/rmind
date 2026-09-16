@@ -112,6 +112,7 @@ class _Insights {
     required this.weekSessions,
     required this.weekTime,
     required this.weekDone,
+    required this.upcoming,
     required this.noteCount,
     required this.weeks,
     required this.weekDays,
@@ -207,6 +208,7 @@ class _Insights {
     }
 
     var weekDone = 0;
+    var upcoming = 0;
     var remindersDue = 0;
     var remindersDone = 0;
     for (final task in tasks) {
@@ -214,6 +216,11 @@ class _Insights {
       // can only mean due this week and done. Said plainly on the tile.
       final inWeek = daysBetween(weekStart, task.dueAt);
       if (task.isDone && inWeek >= 0 && inWeek < 7) weekDone++;
+      // What is actually waiting, which is the only figure on this page that
+      // says anything on the day the app is installed. Everything else here
+      // reports on the past, so without this a user with real reminders sees
+      // nothing but zeroes and reasonably concludes the page is broken.
+      if (task.isPending(now)) upcoming++;
 
       if (task.dueAt.isAfter(now)) continue;
       remindersDue++;
@@ -235,6 +242,7 @@ class _Insights {
       weekSessions: weekSessions,
       weekTime: weekTime,
       weekDone: weekDone,
+      upcoming: upcoming,
       noteCount: noteCount,
       weeks: weeks,
       weekDays: days,
@@ -252,6 +260,9 @@ class _Insights {
   final int weekSessions;
   final Duration weekTime;
   final int weekDone;
+
+  /// Reminders still waiting to fire.
+  final int upcoming;
   final int noteCount;
 
   /// Sessions per week, oldest first, the last entry being the current week.
@@ -373,6 +384,10 @@ class _Tiles extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tiles = <Widget>[
+      _Tile(
+        value: '${data.upcoming}',
+        label: data.upcoming == 1 ? 'reminder upcoming' : 'reminders upcoming',
+      ),
       _Tile(
         value: '${data.weekSessions}',
         label: data.weekSessions == 1 ? 'session this week' : 'sessions this week',
