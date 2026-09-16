@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/food_entry.dart';
 import '../models/task.dart';
 import '../models/workout_session.dart';
 
@@ -95,6 +96,37 @@ class WorkoutEndIntent extends ParsedIntent {
 
   @override
   String toString() => 'WorkoutEndIntent()';
+}
+
+/// The user said they ate or drank something.
+///
+/// This layer reports what was said and nothing more. A shake is not resolved
+/// to a gram figure here: the user's own scoop size lives in settings, and
+/// inventing one in the parser would hide a guess behind their own number.
+class FoodIntent extends ParsedIntent {
+  const FoodIntent({
+    required this.description,
+    this.proteinGrams,
+    this.isShake = false,
+  });
+
+  /// What they ate, in their own words, already trimmed and never empty: it
+  /// falls back to the raw transcript rather than losing the entry.
+  final String description;
+
+  /// Null when the user did not say a number, which is the common case. The
+  /// caller has better sources than a guess, and the UI marks an estimate as
+  /// one, so a fabricated figure here would be shown as if it were heard.
+  final int? proteinGrams;
+
+  /// True when the item is a protein shake or protein powder, which is the one
+  /// entry repeated often enough to be worth a configured value.
+  final bool isShake;
+
+  @override
+  String toString() =>
+      'FoodIntent($description, proteinGrams: $proteinGrams, '
+      'isShake: $isShake)';
 }
 
 /// Anything that stopped a transcript from becoming a [ParsedTask].
@@ -195,7 +227,7 @@ class GeminiClient {
     'properties': {
       'intent': {
         'type': 'STRING',
-        'enum': ['reminder', 'note', 'workout_start', 'workout_end'],
+        'enum': ['reminder', 'note', 'workout_start', 'workout_end', 'food'],
       },
       'title': {'type': 'STRING'},
       'date': {'type': 'STRING'},
@@ -209,6 +241,11 @@ class GeminiClient {
       },
       'workoutType': {'type': 'STRING'},
       'noteText': {'type': 'STRING'},
+      'foodDescription': {'type': 'STRING'},
+      // Optional on purpose. A required grams field would force the model to
+      // answer with a guess on every sentence that never mentioned a number.
+      'proteinGrams': {'type': 'INTEGER'},
+      'isShake': {'type': 'BOOLEAN'},
     },
     'required': [
       'intent',
@@ -284,6 +321,15 @@ class GeminiClient {
         // Keeping the sentence unpolished beats dropping it: the user said it
         // out loud precisely so it would not be lost.
         return NoteIntent(noteText.isEmpty ? text : noteText);
+      case 'food':
+        final raw = fields['foodDescription'];
+        final description = raw is String ? raw.trim() : '';
+        return FoodIntent(
+          // Same trade as a note: an unpolished line beats an empty entry.
+          description: description.isEmpty ? text : description,
+          proteinGrams: _grams(fields['proteinGrams']),
+          isShake: fields['isShake'] == true,
+        );
       case 'reminder':
         return ReminderIntent(_toParsedTask(fields, reference));
       default:
@@ -623,6 +669,17 @@ class GeminiClient {
     return value;
   }
 
+  /// Null unless the user actually said a figure worth recording.
+  ///
+  /// Anything missing, non numeric or not positive is the model filling the
+  /// field in rather than leaving it out, and null is the honest answer: the
+  /// caller knows the user's own shake size and can say it is estimating.
+  int? _grams(Object? raw) {
+    final value = raw is num ? raw.toInt() : null;
+    if (value == null || value <= 0) return null;
+    return FoodEntry.clampGrams(value);
+  }
+
   String _statusMessage(int status) {
     switch (status) {
       case 400:
@@ -673,9 +730,14 @@ Classify the sentence first and put the result in intent:
   that has NO time attached and asks for NO alarm. For example "the wifi
   password is hunter2", "Marko's new number is 091 555 1234", "remember I
   parked on level three".
+- "food" when the user says they ate or drank something. For example "had a
+  protein shake", "4 eggs", "chicken and rice for lunch", "just ate a steak".
 - "reminder" for everything else. This is the default.
 
 Being at the gym is NOT a reminder. "I'm at the gym" must never become a task.
+
+Eating is NOT a reminder and NOT a note. "I had a shake" is food. "Remind me to
+eat more protein" is still a reminder, because it asks to be interrupted later.
 
 The deciding test between "reminder" and "note" is whether the user wants to be
 interrupted later. A reminder wants to interrupt. A note does not.
@@ -694,8 +756,20 @@ Write "Bicep and shoulder", "Leg day", "Back". Never title case such as
 "Bicep And Shoulder", and never upper case such as "LEGS".
 Leave it empty when they did not say what they are training.
 
-The reminder fields below are read only when intent is "reminder". For the note
-and workout intents they are ignored, so fill them with any valid values.
+foodDescription, proteinGrams and isShake belong to "food" only. Leave all three
+out for every other intent.
+- foodDescription: what they ate, in their own words. Fix only obvious
+  transcription noise. Do not expand it into a recipe and do not turn it into a
+  portion estimate. "4 eggs" stays "4 eggs".
+- proteinGrams: only when the user actually said a number. "roughly 24 grams of
+  protein" is 24. If they did not say a number, leave the field out entirely.
+  Guessing is worse than omitting here. The app already has a better source for
+  the common case, and it shows the user a marker saying a figure was estimated,
+  so a number you invented would be presented as one the user said out loud.
+- isShake: true when the item is a protein shake or protein powder.
+
+The reminder fields below are read only when intent is "reminder". For the note,
+food and workout intents they are ignored, so fill them with any valid values.
 
 $_reminderRules
 

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:rmind/models/food_entry.dart';
 import 'package:rmind/models/task.dart';
 import 'package:rmind/models/workout_session.dart';
 import 'package:rmind/services/gemini_client.dart';
@@ -651,7 +652,7 @@ void main() {
       expect((result as WorkoutStartIntent).type, 'Leg day');
     });
 
-    test('constrains intent to the four known values in the schema', () async {
+    test('constrains intent to the five known values in the schema', () async {
       late http.Request seen;
       final client = GeminiClient(
         apiKey: 'test-key',
@@ -685,6 +686,7 @@ void main() {
         'note',
         'workout_start',
         'workout_end',
+        'food',
       ]);
       expect((properties['workoutType'] as Map)['type'], 'STRING');
       expect((properties['noteText'] as Map)['type'], 'STRING');
@@ -790,6 +792,218 @@ void main() {
         throwsA(isA<GeminiException>()),
       );
       expect(calls, 0);
+    });
+  });
+
+  group('food', () {
+    /// Answers a food intent, filling the required reminder fields the way the
+    /// live model does for every intent that ignores them.
+    GeminiClient clientAnswering(Map<String, Object?> food) {
+      return GeminiClient(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          return modelReply({
+            'intent': 'food',
+            ...food,
+            'title': 'Eat',
+            'date': '2026-09-17',
+            'time': '09:00',
+            'reminderMinutesBefore': 30,
+            'useAlarm': false,
+            'needsClarification': true,
+          });
+        }),
+      );
+    }
+
+    test('reads a shake without inventing a gram figure for it', () async {
+      final result = await clientAnswering({
+        'foodDescription': 'Protein shake',
+        'isShake': true,
+      }).interpret('had a protein shake', now: DateTime(2026, 9, 16, 10, 30));
+
+      expect(result, isA<FoodIntent>());
+      final food = result as FoodIntent;
+      expect(food.description, 'Protein shake');
+      expect(food.isShake, isTrue);
+      // The user's own scoop size lives in settings. Guessing one here would
+      // overwrite their figure with the model's.
+      expect(food.proteinGrams, isNull);
+    });
+
+    test('keeps the number the user said out loud', () async {
+      final result = await clientAnswering({
+        'foodDescription': '4 eggs',
+        'proteinGrams': 24,
+        'isShake': false,
+      }).interpret(
+        'had 4 eggs thats roughly 24 grams of protein',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      final food = result as FoodIntent;
+      expect(food.description, '4 eggs');
+      expect(food.proteinGrams, 24);
+      expect(food.isShake, isFalse);
+    });
+
+    test('logs a meal with no number as food all the same', () async {
+      final result = await clientAnswering({
+        'foodDescription': 'Chicken and rice',
+      }).interpret(
+        'chicken and rice for lunch',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      expect(result, isA<FoodIntent>());
+      final food = result as FoodIntent;
+      expect(food.description, 'Chicken and rice');
+      expect(food.proteinGrams, isNull);
+      expect(food.isShake, isFalse);
+    });
+
+    test('clamps an absurd gram figure and drops a negative one', () async {
+      final absurd = await clientAnswering({
+        'foodDescription': 'Steak',
+        'proteinGrams': 9999,
+      }).interpret('ate a steak', now: DateTime(2026, 9, 16, 10, 30));
+
+      expect((absurd as FoodIntent).proteinGrams, FoodEntry.maxGramsPerEntry);
+
+      final negative = await clientAnswering({
+        'foodDescription': 'Steak',
+        'proteinGrams': -20,
+      }).interpret('ate a steak', now: DateTime(2026, 9, 16, 10, 30));
+
+      // Not zero: a nonsense figure means nothing was heard, and the caller
+      // has to be able to tell that apart from a real zero.
+      expect((negative as FoodIntent).proteinGrams, isNull);
+    });
+
+    test('falls back to the transcript when the description is empty',
+        () async {
+      final result = await clientAnswering({
+        'foodDescription': '   ',
+        'isShake': true,
+      }).interpret(
+        '  had a shake after training  ',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      expect((result as FoodIntent).description, 'had a shake after training');
+    });
+
+    test('still reads a request to eat better as a reminder', () async {
+      final client = GeminiClient(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          return modelReply({
+            'intent': 'reminder',
+            // Stray food fields must not hijack the reminder path.
+            'foodDescription': 'protein',
+            'isShake': true,
+            'title': 'Eat more protein',
+            'date': '2026-09-17',
+            'time': '09:00',
+            'reminderMinutesBefore': 30,
+            'useAlarm': false,
+            'needsClarification': true,
+          });
+        }),
+      );
+
+      final result = await client.interpret(
+        'remind me to eat more protein',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      expect(result, isA<ReminderIntent>());
+      expect((result as ReminderIntent).task.title, 'Eat more protein');
+    });
+
+    test('still reads an arrival as a workout, not as food', () async {
+      final client = GeminiClient(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          return modelReply({
+            'intent': 'workout_start',
+            'workoutType': 'Leg day',
+            'foodDescription': "I'm at the gym",
+            'title': 'Gym',
+            'date': '2026-09-16',
+            'time': '18:00',
+            'reminderMinutesBefore': 30,
+            'useAlarm': false,
+            'needsClarification': false,
+          });
+        }),
+      );
+
+      final result = await client.interpret(
+        "I'm at the gym",
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      expect(result, isA<WorkoutStartIntent>());
+      expect((result as WorkoutStartIntent).type, 'Leg day');
+    });
+
+    test('asks for the food fields without loosening the reminder contract',
+        () async {
+      late http.Request seen;
+      final client = GeminiClient(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          seen = request;
+          return modelReply({
+            'intent': 'food',
+            'foodDescription': 'Protein shake',
+            'isShake': true,
+            'title': 'Eat',
+            'date': '2026-09-17',
+            'time': '09:00',
+            'reminderMinutesBefore': 30,
+            'useAlarm': false,
+            'needsClarification': true,
+          });
+        }),
+      );
+
+      await client.interpret(
+        'had a protein shake',
+        now: DateTime(2026, 9, 16, 10, 30),
+      );
+
+      final config = requestBody(seen)['generationConfig'] as Map;
+      final schema = config['responseSchema'] as Map;
+      final properties = schema['properties'] as Map;
+
+      expect((properties['intent'] as Map)['enum'], [
+        'reminder',
+        'note',
+        'workout_start',
+        'workout_end',
+        'food',
+      ]);
+      expect((properties['foodDescription'] as Map)['type'], 'STRING');
+      expect((properties['proteinGrams'] as Map)['type'], 'INTEGER');
+      expect((properties['isShake'] as Map)['type'], 'BOOLEAN');
+
+      // All three optional: a required proteinGrams would force a guess on
+      // every sentence that never mentioned a number.
+      expect(schema['required'], isNot(contains('foodDescription')));
+      expect(schema['required'], isNot(contains('proteinGrams')));
+      expect(schema['required'], isNot(contains('isShake')));
+      expect(schema['required'], contains('intent'));
+      expect(schema['required'], containsAll(['title', 'date', 'time']));
+
+      final prompt = systemPromptOf(seen);
+      expect(prompt, contains('"I had a shake" is food'));
+      expect(prompt, contains('Guessing is worse than omitting here.'));
+      expect(prompt, contains('leave the field out entirely'));
+      // The rules the other intents depend on ride along untouched.
+      expect(prompt, contains('must never become a task'));
+      expect(prompt, contains('evening 18:00'));
     });
   });
 
